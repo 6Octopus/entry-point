@@ -1,0 +1,39 @@
+{
+  "name": "entry-point",
+  "version": "1.0.0",
+  "description": "Entry point for Octoplay",
+  "main": "\u001b[C\u001b[D\u001b[\u001b[C\u001b[3~\u001b[Dserver.js",
+  "scripts": {
+    "test": "echo \"Error: no test specified\" && exit 1",
+    "start": "nodemon ./server/server"
+  },
+  "repository": {
+    "type": "git",
+    "url": "git+https://github.com/bverch/entry-point.git"
+  },
+  "author": "bverch",
+  "license": "ISC",
+  "bugs": {
+    "url": "https://github.com/bverch/entry-point/issues"
+  },
+  "homepage": "https://github.com/bverch/entry-point#readme",
+  "dependencies": {
+    "axios": "^0.17.1",
+    "body-parser": "^1.18.2",
+    "elasticsearch": "^14.0.0",
+    "express": "^4.16.2",
+    "express-elasticsearch-logger": "^2.1.0",
+    "sqs-consumer": "^3.8.0"
+  },
+  "devDependencies": {
+    "chai": "^4.1.2",
+    "eslint": "^4.13.1",
+    "eslint-config-airbnb": "^16.1.0",
+    "eslint-plugin-import": "^2.8.0",
+    "eslint-plugin-jsx-a11y": "^6.0.2",
+    "eslint-plugin-react": "^7.5.1",
+    "faker": "^4.1.0",
+    "mocha": "^4.0.1",
+    "supertest": "^3.0.0"
+  }
+}
