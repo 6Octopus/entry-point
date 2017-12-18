@@ -10,9 +10,9 @@ const axios = require('axios').create({baseURL: 'http://localhost:7331'});
 //   if (i % 1000 === 0) {
 //     console.log(i);
 //   }
-axios.get('/search', { data: { title: 'Funny cat compilation' } })
+axios.get('/queries', { data: { title: 'bacon' } })
   .then((response) => {
-    console.log(response.data.hits.hits[0]._source.title);
+    console.log(response.data.hits.hits);
     // console.log(response.data);
   });
 // }

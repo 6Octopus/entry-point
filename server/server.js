@@ -17,7 +17,7 @@ app.get('/search', (req, res) => {
     type: 'doc',
     body: {
       query: {
-        match: {
+        fuzzy: {
           title: req.body.title,
         },
       },
@@ -29,11 +29,81 @@ app.get('/search', (req, res) => {
     .catch((err) => {
       throw err;
     });
+  // insert new query into elasticsearch
+  client.search({
+    index: 'autocomplete',
+    type: 'doc',
+    body: {
+      query: {
+        term: {
+          query: req.body.title,
+        },
+      },
+    },
+  })
+    .then((response) => {
+      if (response.hits.hits.length) {
+        // exists, so update it
+        client.update({
+          index: 'autocomplete',
+          type: 'doc',
+          id: response.hits.hits[0]._id,
+          body: {
+            script: 'ctx._source.querycount += 1',
+            upsert: {
+              querycount: 1,
+            },
+          },
+        })
+          .then((response) => {
+            console.log('EUPDATE', response);
+          })
+          .catch((err) => {
+            console.log(err);
+          });
+      } else {
+        // doesn't exist, so create it
+        client.index({
+          index: 'autocomplete',
+          type: 'doc',
+          body: {
+            query: req.body.title,
+            querycount: 1,
+            timestamp: new Date(),
+          },
+        })
+          .then((response) => {
+            console.log('ECREATE', response);
+          })
+          .catch((err) => {
+            console.log(err);
+          });
+      }
+    })
+    .catch((err) => {
+      console.log('DID NOT FIND', err);
+    });
 });
 
 app.get('/queries', (req, res) => {
   // send a request to autocomplete elastic
-  res.send('GET queries');
+  client.search({
+    index: 'autocomplete',
+    type: 'doc',
+    body: {
+      query: {
+        fuzzy: {
+          query: req.body.title,
+        },
+      },
+    },
+  })
+    .then((response) => {
+      res.send(response);
+    })
+    .catch((err) => {
+      throw err;
+    });
 });
 
 app.get('/video', (req, res) => {
