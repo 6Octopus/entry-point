@@ -1,0 +1,24 @@
+app:
+  build: .
+  ports:
+    - "7331:7331"
+  # links:
+    # - elasticsearch
+    # - "sqs"
+  environment:
+    - AWS_SECRET_ACCESS_KEY
+    - AWS_ACCESS_KEY_ID
+# kibana:
+#   image: "kibana"
+#   links:
+#     - "elasticsearch"
+#   ports:
+#     - 5601:5601
+# elasticsearch:
+#   image: docker.elastic.co/elasticsearch/elasticsearch:6.1.0
+#   ports:
+#     - "9200:9200"
+# sqs:
+#   image: feathj/fake-sqs
+#   ports:
+#     - "9494:9494"
