@@ -1,7 +1,7 @@
 const elasticsearch = require('elasticsearch');
 
 const client = new elasticsearch.Client({
-  host: 'localhost:9200',
+  host: '192.168.99.100:9200',
   log: 'info',
 });
 
