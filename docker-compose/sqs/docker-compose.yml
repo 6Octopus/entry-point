@@ -1,0 +1,6 @@
+version: "2"
+services:
+  sqs:
+    image: feathj/fake-sqs
+    ports:
+      - "9494:9494"

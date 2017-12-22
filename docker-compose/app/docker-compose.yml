@@ -1,0 +1,13 @@
+version: "2"
+services:
+  app:
+    build:
+      context: ../..
+    ports:
+      - "7331:7331"
+    environment:
+      - AWS_SECRET_ACCESS_KEY
+      - AWS_ACCESS_KEY_ID
+      - ENTRY_QUEUE_URL
+      - VIDEO_QUEUE_URL
+      - ENTRY_QUEUE_FAKE

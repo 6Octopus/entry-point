@@ -2,154 +2,73 @@ const express = require('express');
 const bodyParser = require('body-parser');
 const client = require('./elasticsearch/elasticsearch.js');
 const axios = require('axios');
-// const consumer = require('sqs-consumer');
-// random number generator for ids
 const uuid = require('uuid/v4');
-const AWS = require('aws-sdk');
-AWS.config.update({ region: 'us-west-1' });
+const SQS = require('./SQS.js');
+const winston = require('winston');
+const Elasticsearch = require('winston-elasticsearch');
 
-const sqs = new AWS.SQS({ apiVersion: '2012-11-05' });
-
-const queueURL = 'https://sqs.us-west-1.amazonaws.com/486073289734/entry';
-// const queueURL = 'https://sqs.us-west-1.amazonaws.com';
-
-const params = {
-  AttributeNames: [
-    'SentTimestamp',
-  ],
-  MaxNumberOfMessages: 10,
-  MessageAttributeNames: [
-    'All',
-  ],
-  QueueUrl: queueURL,
-  VisibilityTimeout: 30,
-  WaitTimeSeconds: 0,
+const esTransportOpts = {
+  level: 'info',
+  client,
 };
+
+const logger = new winston.Logger({
+  transports: [
+    new Elasticsearch(esTransportOpts),
+  ],
+});
+
 
 const tempCacheObject = {};
 
 const handleMessage = function handleMessage(message) {
-  console.log('message', message);
+  const start = Date.now();
   const response = JSON.parse(message.Body);
-  console.log('message body data', response.data);
-  // find res in our cache, use object for now
-  const res = tempCacheObject[response.id];
-  res.send('successfully responded');
+  if (response.route === '/update') {
+    if (response.method === 'POST') {
+      // update database
+      console.log(message.Body);
+    }
+  } else {
+    const res = tempCacheObject[response.id];
+    // TODO: uncomment this, ES running out of queue space,
+    // may need to find a better way to log
+    res && res.send(response.data);
+  }
+  const finish = Date.now();
+  logger.info({ latency: start - finish });
 };
 
-const receive = function receiveFromQueue() {
-  return new Promise((resolve, reject) => {
-    const deleteBatchParams = {
-      Entries: [],
-      QueueUrl: queueURL,
-    };
-    sqs.receiveMessage(params, (err, data) => {
-      if (err) {
-        console.log('Error: ', err);
-        reject(err);
-      } else if (data.Messages) {
-        data.Messages.forEach((message) => {
-          handleMessage(message);
-          const deleteParams = {
-            Id: message.MessageId,
-            ReceiptHandle: message.ReceiptHandle,
-          };
-          // const finish = new Date();
-          // console.log(message);
-          // console.log(deleteParams);
-          /*
-          client.index({
-            index: 'logger',
-            type: 'latency',
-            body: {
-              latency: 100,
-              '@timestamp': new Date(),
-            },
-          })
-            .then((response) => {
-              // console.log('ECREATE', response);
-            })
-            .catch((err) => {
-              console.log(err);
-            });
-            */
-          // const start = new Date();
-          // statsd.timing('response_time', new Date() - start);
-
-          deleteBatchParams.Entries.push(deleteParams);
-        });
-
-        sqs.deleteMessageBatch(deleteBatchParams, (err, data) => {
-          if (err) {
-            console.log('Delete Error', err);
-          } else {
-            // console.log('Message Deleted', data);
-          }
-        });
-
-        resolve();
-      } else {
-        resolve();
-      }
-    });
-  });
-};
+const receiveQueueURL = process.env.ENTRY_QUEUE_FAKE;
 
 const receiveWrapper = async function receiveWrapper() {
   while (true) {
-    await receive();
+    await SQS.receiveFromQueue(receiveQueueURL, handleMessage);
   }
 };
+for (let i = 0; i < 1; i += 1) {
+  receiveWrapper();
+}
 
-receiveWrapper();
-
-// const msg = { payload: 'a message' };
-
-// const sendParams = {
-//   MessageBody: JSON.stringify(msg),
-//   DelaySeconds: 0,
-//   QueueUrl: queueURL,
-// };
-
-// const send = function sendToQueue() {
-//   sqs.sendMessage(sendParams, function(err, data) {
-//     if (err) console.log(err, err.stack);
-//     else console.log(data);
-//   });
-// };
-
-// send();
-
-// const sqs = consumer.create({
-//   queueUrl: 'http://192.168.99.100:9494/search',
-//   batchSize: 10,
-//   handleMessage: (message, done) => {
-//     console.log('GOT', message);
-//     done();
-//   },
-// });
-
-// sqs.on('error', (err) => {
-//   console.log(err.message);
-// });
-
-// sqs.start();
 
 const app = express();
+
+exports.myApp = app;
 
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
 const port = process.env.PORT || 7331;
 
-app.get('/search', async (req, res) => {
+app.get('/search', (req, res) => {
   // console.log(res);
   // await receive();
+  console.log(req.body.title);
   // send a request to search elastic
   const start = new Date();
   client.search({
     index: 'search',
-    type: 'doc',
+    type: 'video',
     body: {
       query: {
         fuzzy: {
@@ -162,8 +81,9 @@ app.get('/search', async (req, res) => {
       res.send(response);
     })
     .catch((err) => {
-      throw err;
+      console.log(err);
     });
+    /*
   // insert new query into elasticsearch
   client.search({
     index: 'autocomplete',
@@ -209,25 +129,9 @@ app.get('/search', async (req, res) => {
     .catch((err) => {
       console.log('DID NOT FIND', err);
     });
+    */
   const finish = new Date();
-  client.index({
-    index: 'testindex',
-    type: 'testtype',
-    body: {
-      title: 'Test 2',
-      tags: ['a', 'b'],
-      published: true,
-      latency: finish - start,
-      '@timestamp': new Date(),
-      counter: 1,
-    },
-  })
-    .then((response) => {
-      // console.log('ECREATE', response);
-    })
-    .catch((err) => {
-      console.log(err);
-    });
+  logger.info({ latency: start - finish });
   // axios.get('http://localhost:8080/logger', { data: { test: 500 } });
   // res.end();
 });
@@ -257,7 +161,7 @@ app.get('/queries', (req, res) => {
 });
 app.get('/videos', (req, res) => {
   const responseID = uuid();
-  const sendQueueURL = 'https://sqs.us-west-1.amazonaws.com/942892812241/videos';
+  const sendQueueURL = process.env.VIDEO_QUEUE_URL;
   const msg = {
     // id is for caching res
     // route is /videos
@@ -265,33 +169,16 @@ app.get('/videos', (req, res) => {
     // method is GET to get a video
     id: responseID,
     route: '/videos',
-    resUrl: 'https://sqs.us-west-1.amazonaws.com/486073289734/entry',
+    resUrl: process.env.ENTRY_QUEUE_URL,
     method: 'GET',
     // actual video request info
     data: {
-      id: req.body.id,
-      part: 'snippet,contentDetails,statistics,topicDetails',
+      id: req.query.id,
+      part: req.query.part,
     },
-  };
-  const sendParams = {
-    MessageBody: JSON.stringify(msg),
-    DelaySeconds: 0,
-    QueueUrl: sendQueueURL,
-    MessageAttributes: {
-      videos: {
-        DataType: 'String',
-        StringValue: 'videos',
-      },
-    },
-  };
-  const send = function sendToQueue() {
-    sqs.sendMessage(sendParams, function(err, data) {
-      if (err) console.log(err, err.stack);
-      else console.log('Queue send response data:', data);
-    });
   };
   tempCacheObject[responseID] = res;
-  send();
+  SQS.sendToQueue(sendQueueURL, msg);
 });
 
 app.get('/related', (req, res) => {
@@ -339,13 +226,13 @@ app.post('/update', (req, res) => {
 app.post('/viewed', (req, res) => {
   // send a request to history service
   // should send to history queue
-  axios.post('historyUrl/viewed')
-    .then((response) => {
-      res.send(response.data);
-    })
-    .catch((err) => {
-      throw err;
-    });
+  // axios.post('historyUrl/viewed')
+  //   .then((response) => {
+  //     res.send(response.data);
+  //   })
+  //   .catch((err) => {
+  //     throw err;
+  //   });
 });
 
 module.exports = app.listen(port, () => console.log(`Listening on port ${port}`));

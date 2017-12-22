@@ -4,7 +4,7 @@
   "description": "Entry point for Octoplay",
   "main": "\u001b[C\u001b[D\u001b[\u001b[C\u001b[3~\u001b[Dserver.js",
   "scripts": {
-    "test": "echo \"Error: no test specified\" && exit 1",
+    "test": "mocha",
     "start": "node ./server/server"
   },
   "repository": {
@@ -25,7 +25,9 @@
     "express": "^4.16.2",
     "faker": "^4.1.0",
     "sqs-consumer": "^3.8.0",
-    "uuid": "^3.1.0"
+    "uuid": "^3.1.0",
+    "winston": "^2.4.0",
+    "winston-elasticsearch": "^0.5.5"
   },
   "devDependencies": {
     "chai": "^4.1.2",
