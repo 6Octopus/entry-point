@@ -53,8 +53,6 @@ for (let i = 0; i < 1; i += 1) {
 
 const app = express();
 
-exports.myApp = app;
-
 app.use(bodyParser.json());
 app.use(bodyParser.urlencoded({ extended: true }));
 
@@ -63,7 +61,7 @@ const port = process.env.PORT || 7331;
 app.get('/search', (req, res) => {
   // console.log(res);
   // await receive();
-  console.log(req.body.title);
+  console.log(req.query.title);
   // send a request to search elastic
   const start = new Date();
   client.search({
@@ -72,7 +70,7 @@ app.get('/search', (req, res) => {
     body: {
       query: {
         fuzzy: {
-          title: req.body.title,
+          title: req.query.title,
         },
       },
     },
@@ -83,25 +81,26 @@ app.get('/search', (req, res) => {
     .catch((err) => {
       console.log(err);
     });
-    /*
+    console.log(req.query.title);
   // insert new query into elasticsearch
   client.search({
     index: 'autocomplete',
-    type: 'doc',
+    type: 'video',
     body: {
       query: {
         term: {
-          query: req.body.title,
+          query: req.query.title,
         },
       },
     },
   })
     .then((response) => {
       if (response.hits.hits.length) {
+        console.log('EXISTS');
         // exists, so update it
         return client.update({
           index: 'autocomplete',
-          type: 'doc',
+          type: 'video',
           id: response.hits.hits[0]._id,
           body: {
             script: 'ctx._source.querycount += 1',
@@ -111,12 +110,13 @@ app.get('/search', (req, res) => {
           },
         });
       } else {
+        console.log('DOES NOT EXIST');
         // doesn't exist, so create it
         return client.index({
           index: 'autocomplete',
-          type: 'doc',
+          type: 'video',
           body: {
-            query: req.body.title,
+            query: req.query.title,
             querycount: 1,
             timestamp: new Date(),
           },
@@ -129,7 +129,6 @@ app.get('/search', (req, res) => {
     .catch((err) => {
       console.log('DID NOT FIND', err);
     });
-    */
   const finish = new Date();
   logger.info({ latency: start - finish });
   // axios.get('http://localhost:8080/logger', { data: { test: 500 } });
@@ -138,15 +137,14 @@ app.get('/search', (req, res) => {
 
 app.get('/queries', (req, res) => {
   // send a request to autocomplete elastic
-  console.log(req.body);
-  /*
+  console.log(req.query);
   client.search({
     index: 'autocomplete',
-    type: 'doc',
+    type: 'video',
     body: {
       query: {
         fuzzy: {
-          query: req.body.title,
+          query: req.query.title,
         },
       },
     },
@@ -157,7 +155,6 @@ app.get('/queries', (req, res) => {
     .catch((err) => {
       throw err;
     });
-    */
 });
 app.get('/videos', (req, res) => {
   const responseID = uuid();
@@ -183,13 +180,20 @@ app.get('/videos', (req, res) => {
 
 app.get('/related', (req, res) => {
   // send a request to related service
-  axios.get('relatedUrl/videos')
-    .then((response) => {
-      res.send(response.data);
-    })
-    .catch((err) => {
-      throw err;
-    });
+  const responseID = uuid();
+  const sendQueueURL = process.env.RELATED_QUEUE_URL;
+  const msg = {
+    // used by the client to retrieve response object from cache
+    id: responseID,
+    route: '/related',
+    resUrl: process.env.ENTRY_QUEUE_URL,
+    method: 'GET',
+    data: {
+      id: req.query.id,
+    },
+  };
+  tempCacheObject[responseID] = res;
+
 });
 
 app.post('/update', (req, res) => {
@@ -235,5 +239,7 @@ app.post('/viewed', (req, res) => {
   //   });
 });
 
-module.exports = app.listen(port, () => console.log(`Listening on port ${port}`));
+
+module.exports = app;
+// module.exports = app.listen(port, () => console.log(`Listening on port ${port}`));
 
