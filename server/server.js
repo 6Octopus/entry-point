@@ -1,12 +1,64 @@
 const express = require('express');
 const bodyParser = require('body-parser');
-const client = require('./elasticsearch/elasticsearch.js');
-const axios = require('axios');
+const client = require('./elasticsearch/elasticsearch.js').client;
+// const testClient = require('./elasticsearch/elasticsearch.js').testClient;
 const uuid = require('uuid/v4');
-const SQS = require('./SQS.js');
+// const SQS = require('./SQS.js');
 const winston = require('winston');
 const Elasticsearch = require('winston-elasticsearch');
+const AWS = require('aws-sdk');
 
+AWS.config.update({ region: 'us-west-1' });
+
+const sqs = new AWS.SQS({ apiVersion: '2012-11-05' });
+
+const receiveFromQueue = function receive(receiveQueueURL, callback) {
+  return new Promise((resolve, reject) => {
+    const params = {
+      AttributeNames: [
+        'SentTimestamp',
+      ],
+      MaxNumberOfMessages: 10,
+      MessageAttributeNames: [
+        'All',
+      ],
+      QueueUrl: receiveQueueURL,
+      VisibilityTimeout: 30,
+      WaitTimeSeconds: 20,
+    };
+    const deleteBatchParams = {
+      Entries: [],
+      QueueUrl: receiveQueueURL,
+    };
+    sqs.receiveMessage(params, (err, data) => {
+      if (err) {
+        console.log('Error: ', err);
+        reject(err);
+      } else if (data.Messages) {
+        data.Messages.forEach((message) => {
+          callback(message);
+          const deleteParams = {
+            Id: message.MessageId,
+            ReceiptHandle: message.ReceiptHandle,
+          };
+          deleteBatchParams.Entries.push(deleteParams);
+        });
+        sqs.deleteMessageBatch(deleteBatchParams, (err, data) => {
+          if (err) {
+            console.log('Delete Error', err);
+          } else {
+            // console.log('Message Deleted', data);
+          }
+        });
+
+        resolve();
+      } else {
+        // console.log('next');
+        resolve();
+      }
+    });
+  });
+};
 const esTransportOpts = {
   level: 'info',
   client,
@@ -19,37 +71,36 @@ const logger = new winston.Logger({
 });
 
 
-const tempCacheObject = {};
 
 const handleMessage = function handleMessage(message) {
   const start = Date.now();
   const response = JSON.parse(message.Body);
+  // console.log(response);
   if (response.route === '/update') {
     if (response.method === 'POST') {
       // update database
       console.log(message.Body);
     }
   } else {
-    const res = tempCacheObject[response.id];
-    // TODO: uncomment this, ES running out of queue space,
-    // may need to find a better way to log
-    res && res.send(response.data);
+    const res = response.res;
+    response.res && response.res.send(response.data);
   }
   const finish = Date.now();
-  logger.info({ latency: start - finish });
+  logger.info('handleMessage', { latency: finish - start });
 };
 
-const receiveQueueURL = process.env.ENTRY_QUEUE_FAKE;
+const receiveQueueURL = process.env.ENTRY_QUEUE_URL;
 
 const receiveWrapper = async function receiveWrapper() {
   while (true) {
-    await SQS.receiveFromQueue(receiveQueueURL, handleMessage);
+    await receiveFromQueue(receiveQueueURL, handleMessage);
   }
 };
-for (let i = 0; i < 1; i += 1) {
-  receiveWrapper();
-}
 
+// start a group of receivers from the queue
+// for (let i = 0; i < 100; i += 1) {
+//   receiveWrapper();
+// }
 
 const app = express();
 
@@ -61,7 +112,7 @@ const port = process.env.PORT || 7331;
 app.get('/search', (req, res) => {
   // console.log(res);
   // await receive();
-  console.log(req.query.title);
+  // console.log(req.query.title);
   // send a request to search elastic
   const start = new Date();
   client.search({
@@ -76,68 +127,41 @@ app.get('/search', (req, res) => {
     },
   })
     .then((response) => {
+      logger.info('search', { latency:  new Date() - start });
       res.send(response);
     })
     .catch((err) => {
       console.log(err);
     });
-    console.log(req.query.title);
+  // console.log(req.query.title);
   // insert new query into elasticsearch
-  client.search({
-    index: 'autocomplete',
-    type: 'video',
-    body: {
-      query: {
-        term: {
-          query: req.query.title,
+  const updateQuery = function updateQuery() {
+    client.update({
+      index: 'autocomplete',
+      type: 'video',
+      id: req.query.title,
+      body: {
+        script: 'ctx._source.querycount += 1',
+        upsert: {
+          querycount: 1,
         },
       },
-    },
-  })
-    .then((response) => {
-      if (response.hits.hits.length) {
-        console.log('EXISTS');
-        // exists, so update it
-        return client.update({
-          index: 'autocomplete',
-          type: 'video',
-          id: response.hits.hits[0]._id,
-          body: {
-            script: 'ctx._source.querycount += 1',
-            upsert: {
-              querycount: 1,
-            },
-          },
-        });
-      } else {
-        console.log('DOES NOT EXIST');
-        // doesn't exist, so create it
-        return client.index({
-          index: 'autocomplete',
-          type: 'video',
-          body: {
-            query: req.query.title,
-            querycount: 1,
-            timestamp: new Date(),
-          },
-        });
-      }
     })
-    .then((response) => {
-      // console.log('ECREATE', response);
-    })
-    .catch((err) => {
-      console.log('DID NOT FIND', err);
-    });
-  const finish = new Date();
-  logger.info({ latency: start - finish });
-  // axios.get('http://localhost:8080/logger', { data: { test: 500 } });
-  // res.end();
+      .then((response) => {
+        console.log('ECREATE', response);
+      })
+      .catch((err) => {
+        // updateQuery();
+        console.log('Error in autocomplete add:', err);
+      });
+  };
+  updateQuery();
 });
 
 app.get('/queries', (req, res) => {
   // send a request to autocomplete elastic
-  console.log(req.query);
+  const start = new Date();
+  // console.log(req.query);
   client.search({
     index: 'autocomplete',
     type: 'video',
@@ -151,20 +175,21 @@ app.get('/queries', (req, res) => {
   })
     .then((response) => {
       res.send(response);
+      logger.info('queries', { latency: new Date() - start });
     })
     .catch((err) => {
       throw err;
     });
 });
 app.get('/videos', (req, res) => {
-  const responseID = uuid();
   const sendQueueURL = process.env.VIDEO_QUEUE_URL;
+  console.log('videos endpoint');
   const msg = {
     // id is for caching res
     // route is /videos
     // resUrl is my queue
     // method is GET to get a video
-    id: responseID,
+    res,
     route: '/videos',
     resUrl: process.env.ENTRY_QUEUE_URL,
     method: 'GET',
@@ -174,10 +199,21 @@ app.get('/videos', (req, res) => {
       part: req.query.part,
     },
   };
-  tempCacheObject[responseID] = res;
-  SQS.sendToQueue(sendQueueURL, msg);
+  console.log('before send queue');
+  const sendParams = {
+    MessageBody: JSON.stringify(msg),
+    DelaySeconds: 0,
+    QueueUrl: sendQueueURL,
+  };
+  console.log('before send message');
+  sqs.sendMessage(sendParams, (err, data) => {
+    if (err) console.log('Error in send to queue:', err, err.stack);
+    else console.log('Queue send response data:', data);
+  });
+  console.log('sent to queue');
 });
 
+/*
 app.get('/related', (req, res) => {
   // send a request to related service
   const responseID = uuid();
@@ -193,8 +229,9 @@ app.get('/related', (req, res) => {
     },
   };
   tempCacheObject[responseID] = res;
-
+  SQS.sendToQueue(sendQueueURL, msg);
 });
+*/
 
 app.post('/update', (req, res) => {
   // TODO: bulk update elasticsearch db with new video info
@@ -228,18 +265,45 @@ app.post('/update', (req, res) => {
 });
 
 app.post('/viewed', (req, res) => {
-  // send a request to history service
-  // should send to history queue
-  // axios.post('historyUrl/viewed')
-  //   .then((response) => {
-  //     res.send(response.data);
-  //   })
-  //   .catch((err) => {
-  //     throw err;
+  const sendQueueURL = process.env.HISTORY_QUEUE_URL;
+  console.log('videos endpoint');
+  const msg = {
+    // id is for caching res
+    // route is /videos
+    // resUrl is my queue
+    // method is GET to get a video
+    // actual video request info
+    data: [req.body],
+  };
+  console.log('before send queue');
+  const sendParams = {
+    MessageBody: JSON.stringify([req.body]),
+    DelaySeconds: 0,
+    QueueUrl: sendQueueURL,
+  };
+  console.log('before send message');
+  sqs.sendMessage(sendParams, (err, data) => {
+    if (err) console.log('Error in send to queue:', err, err.stack);
+    else console.log('Queue send response data:', data);
+  });
+  console.log('sent to queue');
+  res.send('sent to history service');
+});
+
+app.get('/test', (req, res) => {
+  const start = new Date();
+  // client.get({
+  //   index: 'autocomplete',
+  //   type: 'video',
+  //   id: 'Canyon Health Small',
+  // })
+  //   .then(() => {
   //   });
+  logger.info('test', { latency: new Date() - start });
+  res.send('successful test');
 });
 
 
-module.exports = app;
-// module.exports = app.listen(port, () => console.log(`Listening on port ${port}`));
+// module.exports = app;
+module.exports = app.listen(port, () => console.log(`Listening on port ${port}`));
 
