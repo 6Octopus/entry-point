@@ -1,5 +1,5 @@
 const fs = require('fs');
-const client = require('../server/elasticsearch/elasticsearch.js');
+const client = require('../server/elasticsearch/elasticsearch.js').client;
 const readline = require('readline');
 
 let lines = 0;
@@ -10,7 +10,7 @@ const lineReader = readline.createInterface({
 });
 
 lineReader.on('line', (line) => {
-  if (lines > 350000) {
+  if (lines > 0) {
     const snippet = JSON.parse(line);
     const index = {
       index: { _index: 'search', _id: snippet._id },
